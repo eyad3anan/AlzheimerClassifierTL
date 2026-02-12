@@ -15,9 +15,29 @@ import seaborn as sns
 
 def evaluate_model(model_path, test_data_path, batch_size=32):
     """Evaluate model on test data"""
-    # Load model
+    # Load model with compatibility fix
     print(f"Loading model from {model_path}")
-    model = load_model(model_path)
+    try:
+        # Try loading with compile=False to avoid compatibility issues
+        model = load_model(model_path, compile=False)
+        # Recompile with standard metrics
+        model.compile(
+            optimizer='adam',
+            loss='categorical_crossentropy',
+            metrics=['accuracy']
+        )
+        print("✓ Model loaded successfully (compatibility mode)")
+    except Exception as e:
+        print(f"⚠ Error loading model: {e}")
+        print("Trying alternative loading method...")
+        # Alternative: load with custom objects
+        model = tf.keras.models.load_model(model_path, compile=False)
+        model.compile(
+            optimizer='adam',
+            loss='categorical_crossentropy',
+            metrics=['accuracy']
+        )
+        print("✓ Model loaded with alternative method")
     
     # Prepare test data
     test_datagen = ImageDataGenerator(rescale=1./255)
@@ -38,12 +58,15 @@ def evaluate_model(model_path, test_data_path, batch_size=32):
     y_pred = np.argmax(predictions, axis=1)
     y_true = test_generator.classes
     
-    # Calculate metrics
+    # Calculate metrics from sklearn
+    from sklearn.metrics import precision_score, recall_score, f1_score
+    
     metrics = {
-        'test_loss': float(results[0]),
-        'test_accuracy': float(results[1]),
-        'test_precision': float(results[2]),
-        'test_recall': float(results[3])
+        'test_loss': float(results[0]) if isinstance(results, list) else float(results),
+        'test_accuracy': float(results[1]) if isinstance(results, list) and len(results) > 1 else float(results),
+        'test_precision': float(precision_score(y_true, y_pred, average='weighted')),
+        'test_recall': float(recall_score(y_true, y_pred, average='weighted')),
+        'test_f1_score': float(f1_score(y_true, y_pred, average='weighted'))
     }
     
     # Classification report
