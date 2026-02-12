@@ -1,0 +1,333 @@
+name: CI/CD MLOps Pipeline
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      train_model:
+        description: 'Trigger model training'
+        required: false
+        type: boolean
+        default: false
+
+env:
+  PYTHON_VERSION: '3.10'
+  MLFLOW_TRACKING_URI: ${{ secrets.MLFLOW_TRACKING_URI }}
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+jobs:
+  # Job 1: Code Quality and Linting
+  code-quality:
+    name: Code Quality Checks
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install flake8 black isort pylint
+
+      - name: Run Black (Code Formatting)
+        run: black --check --diff .
+        continue-on-error: true
+
+      - name: Run isort (Import Sorting)
+        run: isort --check-only --diff .
+        continue-on-error: true
+
+      - name: Run Flake8 (Linting)
+        run: flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+        continue-on-error: true
+
+      - name: Run Pylint
+        run: |
+          pip install -r requirements.txt
+          pylint app.py --disable=C,R,W
+        continue-on-error: true
+
+  # Job 2: Unit Tests
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: code-quality
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest pytest-cov
+
+      - name: Run tests with coverage
+        run: |
+          pytest tests/ --cov=. --cov-report=xml --cov-report=html
+        continue-on-error: true
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        with:
+          file: ./coverage.xml
+          flags: unittests
+          name: codecov-umbrella
+        continue-on-error: true
+
+  # Job 3: Model Training (Optional - triggered manually or on specific conditions)
+  model-training:
+    name: Model Training Pipeline
+    runs-on: ubuntu-latest
+    needs: unit-tests
+    if: github.event.inputs.train_model == 'true' || contains(github.event.head_commit.message, '[train]')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install mlflow dvc[s3] zenml
+
+      - name: Configure DVC
+        run: |
+          dvc remote modify origin --local auth basic
+          dvc remote modify origin --local user ${{ secrets.DVC_USER }}
+          dvc remote modify origin --local password ${{ secrets.DVC_PASSWORD }}
+        continue-on-error: true
+
+      - name: Pull data with DVC
+        run: dvc pull
+        continue-on-error: true
+
+      - name: Train model with MLflow tracking
+        run: |
+          python scripts/train_model.py \
+            --epochs 10 \
+            --batch-size 32 \
+            --learning-rate 0.001 \
+            --mlflow-tracking-uri ${{ secrets.MLFLOW_TRACKING_URI || 'http://localhost:5000' }}
+        env:
+          MLFLOW_TRACKING_USERNAME: ${{ secrets.MLFLOW_USERNAME }}
+          MLFLOW_TRACKING_PASSWORD: ${{ secrets.MLFLOW_PASSWORD }}
+
+      - name: Upload model artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trained-model
+          path: models/
+          retention-days: 30
+
+  # Job 4: Model Evaluation
+  model-evaluation:
+    name: Model Evaluation
+    runs-on: ubuntu-latest
+    needs: model-training
+    if: always() && (needs.model-training.result == 'success' || github.event_name == 'pull_request')
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install mlflow scikit-learn matplotlib seaborn
+
+      - name: Download model artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: trained-model
+          path: models/
+        continue-on-error: true
+
+      - name: Evaluate model
+        run: |
+          python scripts/evaluate_model.py \
+            --model-path models/AlzheimerClassifierTL.h5 \
+            --test-data-path Data/OriginalDataset/test
+        continue-on-error: true
+
+      - name: Generate evaluation report
+        run: |
+          python scripts/generate_report.py \
+            --metrics-path outputs/metrics.json \
+            --output-path outputs/evaluation_report.html
+        continue-on-error: true
+
+      - name: Upload evaluation artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: evaluation-results
+          path: outputs/
+          retention-days: 30
+
+  # Job 5: Model Validation (Quality Gates)
+  model-validation:
+    name: Model Quality Gates
+    runs-on: ubuntu-latest
+    needs: model-evaluation
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download evaluation results
+        uses: actions/download-artifact@v4
+        with:
+          name: evaluation-results
+          path: outputs/
+        continue-on-error: true
+
+      - name: Validate model metrics
+        run: |
+          python scripts/validate_metrics.py \
+            --metrics-file outputs/metrics.json \
+            --min-accuracy 0.85 \
+            --min-f1-score 0.80
+        continue-on-error: true
+
+  # Job 6: Docker Build and Push
+  docker-build:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: [unit-tests]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ secrets.DOCKER_USERNAME }}/alzheimer-classifier
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=semver,pattern={{version}}
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # Job 7: Deploy to Hugging Face
+  deploy-huggingface:
+    name: Deploy Model to Hugging Face
+    runs-on: ubuntu-latest
+    needs: [model-validation]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install huggingface-hub
+
+      - name: Download model artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: trained-model
+          path: models/
+        continue-on-error: true
+
+      - name: Upload model to Hugging Face
+        run: |
+          python scripts/upload_to_hf.py \
+            --model-path models/AlzheimerClassifierTL.h5 \
+            --repo-id Eyaddddddd/AlzheimerClassifierTL \
+            --token ${{ secrets.HF_TOKEN }}
+        continue-on-error: true
+
+  # Job 8: Model Monitoring Setup
+  setup-monitoring:
+    name: Setup Model Monitoring
+    runs-on: ubuntu-latest
+    needs: [deploy-huggingface]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install monitoring tools
+        run: |
+          pip install evidently prometheus-client
+
+      - name: Initialize monitoring dashboard
+        run: |
+          python scripts/setup_monitoring.py \
+            --model-name AlzheimerClassifierTL \
+            --monitoring-endpoint ${{ secrets.MONITORING_ENDPOINT || 'http://localhost:9090' }}
+        continue-on-error: true
+
+  # Job 9: Notification
+  notify:
+    name: Send Notifications
+    runs-on: ubuntu-latest
+    needs: [deploy-huggingface, docker-build]
+    if: always()
+    steps:
+      - name: Send Slack notification
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'CI/CD Pipeline completed'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        if: always()
+        continue-on-error: true

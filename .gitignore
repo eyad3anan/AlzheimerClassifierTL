@@ -1,0 +1,83 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# MLOps
+mlruns/
+mlflow.db
+*.db
+*.sqlite
+models/*.h5
+models/*.keras
+outputs/
+logs/
+*.log
+
+# DVC
+.dvc/cache
+.dvc/tmp
+
+# Data
+Data/OriginalDataset/
+*.csv
+*.zip
+*.tar.gz
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Docker
+.dockerignore
+
+# Secrets
+.env
+.env.local
+secrets.toml
+.streamlit/secrets.toml
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+coverage.xml
+*.cover
+
+# Monitoring
+monitoring/prometheus/data/
+monitoring/grafana/data/
