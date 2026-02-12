@@ -90,12 +90,12 @@ jobs:
           name: codecov-umbrella
         continue-on-error: true
 
-  # Job 3: Model Training (Optional - triggered manually or on specific conditions)
+  # Job 3: Model Training (Optional - triggered manually only)
   model-training:
     name: Model Training Pipeline
     runs-on: ubuntu-latest
     needs: unit-tests
-    if: github.event.inputs.train_model == 'true' || contains(github.event.head_commit.message, '[train]')
+    if: github.event.inputs.train_model == 'true'
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
