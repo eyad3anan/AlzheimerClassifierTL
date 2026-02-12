@@ -95,6 +95,7 @@ jobs:
     name: Download Model from Hugging Face
     runs-on: ubuntu-latest
     needs: unit-tests
+    if: ${{ secrets.HF_TOKEN != '' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -132,6 +133,7 @@ jobs:
     name: Model Evaluation
     runs-on: ubuntu-latest
     needs: download-model
+    if: ${{ needs.download-model.result == 'success' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
