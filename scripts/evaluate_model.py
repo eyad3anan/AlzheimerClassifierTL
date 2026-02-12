@@ -17,9 +17,24 @@ def evaluate_model(model_path, test_data_path, batch_size=32):
     """Evaluate model on test data"""
     # Load model with compatibility fix
     print(f"Loading model from {model_path}")
+    
+    # Custom object to handle batch_shape compatibility
+    import keras
+    from keras.layers import InputLayer
+    
+    # Create a custom InputLayer that ignores batch_shape
+    class CompatibleInputLayer(InputLayer):
+        def __init__(self, batch_shape=None, input_shape=None, **kwargs):
+            # Convert batch_shape to input_shape if needed
+            if batch_shape is not None and input_shape is None:
+                input_shape = batch_shape[1:]
+            super().__init__(input_shape=input_shape, **kwargs)
+    
     try:
-        # Try loading with compile=False to avoid compatibility issues
-        model = load_model(model_path, compile=False)
+        # Load with custom objects
+        with keras.utils.custom_object_scope({'InputLayer': CompatibleInputLayer}):
+            model = load_model(model_path, compile=False)
+        
         # Recompile with standard metrics
         model.compile(
             optimizer='adam',
@@ -28,16 +43,8 @@ def evaluate_model(model_path, test_data_path, batch_size=32):
         )
         print("✓ Model loaded successfully (compatibility mode)")
     except Exception as e:
-        print(f"⚠ Error loading model: {e}")
-        print("Trying alternative loading method...")
-        # Alternative: load with custom objects
-        model = tf.keras.models.load_model(model_path, compile=False)
-        model.compile(
-            optimizer='adam',
-            loss='categorical_crossentropy',
-            metrics=['accuracy']
-        )
-        print("✓ Model loaded with alternative method")
+        print(f"❌ Error loading model: {e}")
+        raise RuntimeError(f"Failed to load model from {model_path}. The model may be incompatible with the current Keras version.")
     
     # Prepare test data
     test_datagen = ImageDataGenerator(rescale=1./255)
