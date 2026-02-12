@@ -92,17 +92,28 @@ def main():
     
     args = parser.parse_args()
     
-    # Set MLflow tracking URI
-    mlflow.set_tracking_uri(args.mlflow_tracking_uri)
-    mlflow.set_experiment(args.experiment_name)
+    # Try to set up MLflow tracking (optional)
+    mlflow_available = False
+    try:
+        mlflow.set_tracking_uri(args.mlflow_tracking_uri)
+        mlflow.set_experiment(args.experiment_name)
+        mlflow_available = True
+        print(f"✓ MLflow tracking enabled at {args.mlflow_tracking_uri}")
+    except Exception as e:
+        print(f"⚠ MLflow tracking unavailable: {e}")
+        print("Continuing training without MLflow tracking...")
     
-    # Start MLflow run
-    with mlflow.start_run():
-        # Log parameters
-        mlflow.log_param("epochs", args.epochs)
-        mlflow.log_param("batch_size", args.batch_size)
-        mlflow.log_param("learning_rate", args.learning_rate)
-        mlflow.log_param("model_architecture", "ResNet50")
+    # Training function
+    def train_model():
+        # Log parameters to MLflow if available
+        if mlflow_available:
+            try:
+                mlflow.log_param("epochs", args.epochs)
+                mlflow.log_param("batch_size", args.batch_size)
+                mlflow.log_param("learning_rate", args.learning_rate)
+                mlflow.log_param("model_architecture", "ResNet50")
+            except Exception as e:
+                print(f"⚠ Could not log parameters to MLflow: {e}")
         
         # Prepare data
         print("Preparing data...")
@@ -116,6 +127,7 @@ def main():
         model.summary()
         
         # Callbacks
+        os.makedirs('models', exist_ok=True)
         callbacks = [
             EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True),
             ModelCheckpoint('models/best_model.h5', save_best_only=True, monitor='val_accuracy'),
@@ -132,27 +144,54 @@ def main():
             verbose=1
         )
         
-        # Log metrics
-        for epoch in range(len(history.history['loss'])):
-            mlflow.log_metric("train_loss", history.history['loss'][epoch], step=epoch)
-            mlflow.log_metric("train_accuracy", history.history['accuracy'][epoch], step=epoch)
-            mlflow.log_metric("val_loss", history.history['val_loss'][epoch], step=epoch)
-            mlflow.log_metric("val_accuracy", history.history['val_accuracy'][epoch], step=epoch)
+        # Log metrics to MLflow if available
+        if mlflow_available:
+            try:
+                for epoch in range(len(history.history['loss'])):
+                    mlflow.log_metric("train_loss", history.history['loss'][epoch], step=epoch)
+                    mlflow.log_metric("train_accuracy", history.history['accuracy'][epoch], step=epoch)
+                    mlflow.log_metric("val_loss", history.history['val_loss'][epoch], step=epoch)
+                    mlflow.log_metric("val_accuracy", history.history['val_accuracy'][epoch], step=epoch)
+            except Exception as e:
+                print(f"⚠ Could not log metrics to MLflow: {e}")
         
         # Save final model
-        os.makedirs('models', exist_ok=True)
         model.save('models/AlzheimerClassifierTL.h5')
         
-        # Log model to MLflow
-        mlflow.tensorflow.log_model(model, "model")
+        # Log model to MLflow if available
+        if mlflow_available:
+            try:
+                mlflow.tensorflow.log_model(model, "model")
+            except Exception as e:
+                print(f"⚠ Could not log model to MLflow: {e}")
         
-        # Save and log training history
+        # Save training history
+        os.makedirs('outputs', exist_ok=True)
         with open('outputs/training_history.json', 'w') as f:
             json.dump(history.history, f)
-        mlflow.log_artifact('outputs/training_history.json')
         
-        print(f"Training completed! Final validation accuracy: {history.history['val_accuracy'][-1]:.4f}")
-        print(f"Model saved to models/AlzheimerClassifierTL.h5")
+        # Log artifact to MLflow if available
+        if mlflow_available:
+            try:
+                mlflow.log_artifact('outputs/training_history.json')
+            except Exception as e:
+                print(f"⚠ Could not log artifact to MLflow: {e}")
+        
+        print(f"\n✓ Training completed! Final validation accuracy: {history.history['val_accuracy'][-1]:.4f}")
+        print(f"✓ Model saved to models/AlzheimerClassifierTL.h5")
+        return history
+    
+    # Run training with or without MLflow
+    if mlflow_available:
+        try:
+            with mlflow.start_run():
+                train_model()
+        except Exception as e:
+            print(f"⚠ MLflow run failed: {e}")
+            print("Running training without MLflow...")
+            train_model()
+    else:
+        train_model()
 
 
 if __name__ == "__main__":
