@@ -18,9 +18,10 @@ def evaluate_model(model_path, test_data_path, batch_size=32):
     # Load model with compatibility fixes for both DTypePolicy and batch_shape
     print(f"Loading model from {model_path}")
     
-    # Custom object to handle batch_shape compatibility
+    # Custom objects to handle Keras version compatibility
     import keras
     from keras.layers import InputLayer
+    from keras.mixed_precision import Policy
     
     # Create a custom InputLayer that converts batch_shape to input_shape
     class CompatibleInputLayer(InputLayer):
@@ -30,9 +31,15 @@ def evaluate_model(model_path, test_data_path, batch_size=32):
                 input_shape = batch_shape[1:]
             super().__init__(input_shape=input_shape, **kwargs)
     
+    # Custom objects dictionary for compatibility
+    custom_objects = {
+        'InputLayer': CompatibleInputLayer,
+        'DTypePolicy': Policy,  # Map old DTypePolicy to new Policy class
+    }
+    
     try:
         # Load with both safe_mode=False and custom objects
-        with keras.utils.custom_object_scope({'InputLayer': CompatibleInputLayer}):
+        with keras.utils.custom_object_scope(custom_objects):
             model = load_model(model_path, compile=False, safe_mode=False)
         
         # Recompile with standard metrics
