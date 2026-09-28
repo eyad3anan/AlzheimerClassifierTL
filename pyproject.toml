@@ -1,0 +1,21 @@
+[project]
+name = "alzheimerclassifiertl-resnet50-transfer-learning"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "eyad3anan", email = "eyad.ananabed@gmail.com" }
+]
+requires-python = ">=3.11"
+dependencies = [
+    "huggingface-hub>=1.28.0",
+    "streamlit>=1.40",
+    "tensorflow>=2.16",
+]
+
+[project.scripts]
+alzheimerclassifiertl-resnet50-transfer-learning = "alzheimerclassifiertl_resnet50_transfer_learning:main"
+
+[build-system]
+requires = ["uv_build>=0.12.5,<0.13.0"]
+build-backend = "uv_build"

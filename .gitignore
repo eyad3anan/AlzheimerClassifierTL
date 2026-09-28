@@ -81,3 +81,4 @@ coverage.xml
 # Monitoring
 monitoring/prometheus/data/
 monitoring/grafana/data/
+.streamlit/secrets.toml
