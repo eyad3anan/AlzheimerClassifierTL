@@ -1,9 +1,0 @@
-# DVC Configuration
-[core]
-    remote = storage
-    autostage = true
-
-[remote "storage"]
-    url = s3://alzheimer-classifier-data
-    # For local storage, use:
-    # url = /path/to/local/storage
